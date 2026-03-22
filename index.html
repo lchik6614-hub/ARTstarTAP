@@ -3,145 +3,482 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Star Tapper</title>
+    <title>ARTCHAT Shop</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
+        :root {
+            --bg-color: #1c1c1e;
+            --text-color: #ffffff;
+            --accent: #ffd700;
+            --secondary: #2c2c2e;
+            --green: #34c759;
+            --red: #ff3b30;
+            --blue: #007aff;
+        }
+
         body {
             margin: 0;
             padding: 0;
-            background-color: var(--tg-theme-bg-color, #1c1c1e);
-            color: var(--tg-theme-text-color, #ffffff);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        /* Верхняя панель */
+        .header {
+            padding: 20px;
+            text-align: center;
+            background: rgba(44, 44, 46, 0.5);
+            backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        .balance-box {
+            display: inline-flex;
+            align-items: center;
+            background: rgba(0,0,0,0.3);
+            padding: 10px 20px;
+            border-radius: 20px;
+            border: 1px solid var(--accent);
+            box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+        }
+
+        .balance-icon { font-size: 24px; margin-right: 10px; }
+        .balance-value { font-size: 24px; font-weight: bold; color: var(--accent); }
+
+        .energy-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #8e8e93;
+        }
+        .energy-bar {
+            width: 100%;
+            height: 6px;
+            background: #3a3a3c;
+            border-radius: 3px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+        .energy-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ffd700, #ffaa00);
+            width: 100%;
+            transition: width 0.3s;
+        }
+
+        /* Основной контент */
+        .content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .screen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            height: 100vh;
-            overflow: hidden;
-            user-select: none; /* Запрет выделения текста */
+            transition: transform 0.3s ease;
+            overflow-y: auto;
+        }
+
+        .screen.hidden {
+            transform: translateX(100%);
+            pointer-events: none;
+        }
+
+        .screen.active {
+            transform: translateX(0);
+        }
+
+        /* Игра */
+        .tap-area {
+            width: 220px;
+            height: 220px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 100px;
+            cursor: pointer;
+            transition: transform 0.1s;
+            background: radial-gradient(circle, rgba(255,215,0,0.1) 0%, rgba(0,0,0,0) 70%);
             -webkit-tap-highlight-color: transparent;
         }
 
-        .score-container {
-            position: absolute;
-            top: 15%;
-            text-align: center;
-        }
+        .tap-area:active { transform: scale(0.9); }
+        .tap-area.disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
 
-        .score-label {
-            font-size: 14px;
-            opacity: 0.7;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .score-value {
-            font-size: 48px;
-            font-weight: 800;
-            margin-top: 5px;
-            text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
-        }
-
-        .star-container {
-            position: relative;
-            width: 250px;
-            height: 250px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-        }
-
-        /* Эффект нажатия */
-        .star-container:active {
-            transform: scale(0.90);
-        }
-
-        .star-svg {
-            width: 100%;
-            height: 100%;
-            fill: #ffd700;
-            filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.6));
-            pointer-events: none; /* Чтобы клик проходил сквозь SVG на контейнер */
-        }
-
-        /* Всплывающие цифры +1 */
         .float-text {
             position: absolute;
-            color: #ffffff;
+            color: #fff;
             font-weight: bold;
             font-size: 24px;
             pointer-events: none;
-            animation: floatUp 1s ease-out forwards;
+            animation: floatUp 0.8s ease-out forwards;
             text-shadow: 0 0 5px #000;
         }
 
         @keyframes floatUp {
             0% { opacity: 1; transform: translateY(0) scale(1); }
-            100% { opacity: 0; transform: translateY(-100px) scale(1.5); }
+            100% { opacity: 0; transform: translateY(-80px) scale(1.2); }
         }
 
-        .footer {
-            position: absolute;
-            bottom: 30px;
-            font-size: 12px;
-            opacity: 0.5;
+        /* Магазин */
+        .shop-container {
+            padding: 20px;
+            width: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
         }
+
+        .shop-item {
+            background: var(--secondary);
+            border-radius: 15px;
+            padding: 20px;
+            width: 100%;
+            max-width: 350px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border: 1px solid #3a3a3c;
+        }
+
+        .item-left { display: flex; align-items: center; gap: 15px; }
+        .item-icon { font-size: 50px; }
+        .item-info { display: flex; flex-direction: column; }
+        .item-name { font-weight: bold; font-size: 18px; }
+        .item-price { color: var(--accent); font-size: 14px; margin-top: 4px; }
+        .item-desc { font-size: 12px; color: #8e8e93; margin-top: 2px; }
+
+        .btn {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            transition: 0.2s;
+        }
+        .btn:active { transform: scale(0.95); }
+        .btn:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
+        
+        .btn-buy { background: var(--blue); color: white; }
+        .btn-notify { background: var(--green); color: white; margin-top: 10px; width: 100%; max-width: 350px;}
+
+        /* Навигация */
+        .nav-bar {
+            display: flex;
+            background: var(--secondary);
+            padding: 10px 0;
+            border-top: 1px solid #3a3a3c;
+        }
+
+        .nav-item {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            color: #8e8e93;
+            cursor: pointer;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+
+        .nav-item.active { color: var(--accent); font-weight: bold; }
+        .nav-icon { font-size: 20px; display: block; margin-bottom: 4px; }
+
+        /* Модальное окно (уведомление) */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+        }
+        .modal {
+            background: var(--secondary);
+            padding: 25px;
+            border-radius: 20px;
+            text-align: center;
+            max-width: 300px;
+            border: 1px solid var(--accent);
+        }
+        .modal h3 { margin-top: 0; color: var(--accent); }
+        .modal p { font-size: 14px; color: #ccc; margin-bottom: 20px; }
+
     </style>
 </head>
 <body>
 
-    <div class="score-container">
-        <div class="score-label">Ваш баланс</div>
-        <div class="score-value" id="score">0</div>
+    <div class="header">
+        <div class="balance-box">
+            <span class="balance-icon">⭐️</span>
+            <span class="balance-value" id="score">0</span>
+        </div>
+        <div class="energy-info">
+            Энергия: <span id="energy-text">1000/1000</span>
+            <div class="energy-bar"><div class="energy-fill" id="energy-fill"></div></div>
+        </div>
     </div>
 
-    <div class="star-container" id="star-btn">
-        <!-- SVG Звезда -->
-        <svg class="star-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-        </svg>
+    <div class="content">
+        <!-- Экран Игры -->
+        <div id="screen-game" class="screen active">
+            <div class="tap-area" id="tap-btn">⭐️</div>
+            <div style="margin-top: 20px; opacity: 0.6; font-size: 12px;">Тапай чтобы заработать на подарки</div>
+        </div>
+
+        <!-- Экран Магазина -->
+        <div id="screen-shop" class="screen hidden">
+            <h2 style="margin-top: 20px; margin-bottom: 10px;">Вывод подарков</h2>
+            <p style="font-size: 12px; color: #888; text-align: center; padding: 0 20px;">
+                Купи подарок и напиши админу для получения
+            </p>
+            <div class="shop-container" id="shop-container">
+                <!-- Товары генерируются JS -->
+            </div>
+        </div>
     </div>
 
-    <div class="footer">Tap the star to earn</div>
+    <div class="nav-bar">
+        <div class="nav-item active" onclick="switchTab('game')">
+            <span class="nav-icon"></span>
+            Игра
+        </div>
+        <div class="nav-item" onclick="switchTab('shop')">
+            <span class="nav-icon">🎁</span>
+            Магазин
+        </div>
+    </div>
+
+    <!-- Модальное окно подтверждения -->
+    <div class="modal-overlay" id="modal">
+        <div class="modal">
+            <h3>Заявка создана!</h3>
+            <p>Ты купил <b id="modal-item-name">...</b>.<br>Нажми кнопку ниже, чтобы отправить заявку админу <b>@artemchikdsgn</b>.</p>
+            <button class="btn btn-notify" onclick="sendToAdmin()">Отправить админу</button>
+            <button class="btn" style="background: transparent; color: #888; margin-top: 10px;" onclick="closeModal()">Закрыть</button>
+        </div>
+    </div>
 
     <script>
-        // Инициализация Telegram WebApp
         const tg = window.Telegram.WebApp;
-        tg.expand(); // Развернуть на весь экран
+        tg.expand();
 
-        // Элементы
-        const scoreEl = document.getElementById('score');
-        const starBtn = document.getElementById('star-btn');
+        // --- Конфигурация ---
+        const MAX_ENERGY = 1000;
+        const ADMIN_USERNAME = 'artemchikdsgn'; // Ваш ник
+
+        // Товары
+        const ITEMS = [
+            { id: 'bear', name: 'Мишка', price: 15, icon: '🧸', desc: 'Мягкий подарок' },
+            { id: 'rose', name: 'Роза', price: 25000, icon: '🌹', desc: 'Для особых случаев' }
+        ];
+
+        // --- Состояние (State) ---
+        let state = {
+            score: 0,
+            energy: MAX_ENERGY,
+            lastLogin: Date.now()
+        };
+
+        let pendingItem = null; // Товар, который сейчас покупаем
+
+        // --- Загрузка данных ---
+        function loadState() {
+            const saved = localStorage.getItem('artchatState');
+            if (saved) {
+                state = { ...state, ...JSON.parse(saved) };
+            }
+            rechargeEnergy();
+            updateUI();
+            renderShop();
+        }
+
+        function saveState() {
+            localStorage.setItem('artchatState', JSON.stringify(state));
+        }
+
+        // --- Логика Энергии ---
+        function rechargeEnergy() {
+            const now = Date.now();
+            const passed = now - state.lastLogin;
+            // Регенерация: 1 энергия в секунду (для теста). 
+            // Для 1000 в час замените 1000 на 3600000 в делителе
+            const regenerated = Math.floor(passed / 1000); 
+
+            if (regenerated > 0) {
+                state.energy = Math.min(MAX_ENERGY, state.energy + regenerated);
+                state.lastLogin = now;
+                saveState();
+            }
+        }
+
+        // --- Игровая логика ---
+        const tapBtn = document.getElementById('tap-btn');
         
-        // Загрузка счета из localStorage
-        let score = parseInt(localStorage.getItem('starScore')) || 0;
-        scoreEl.innerText = score;
-
-        // Обработка клика
-        starBtn.addEventListener('click', (e) => {
-            // 1. Увеличиваем счет
-            score++;
-            scoreEl.innerText = score;
-            localStorage.setItem('starScore', score);
-
-            // 2. Вибрация (Haptic Feedback) - работает только в Telegram
-            if (tg.HapticFeedback) {
-                tg.HapticFeedback.impactOccurred('light');
+        tapBtn.addEventListener('click', (e) => {
+            if (state.energy <= 0) {
+                tg.HapticFeedback.notificationOccurred('error');
+                return;
             }
 
-            // 3. Создаем всплывающий текст "+1"
-            createFloatingText(e.clientX, e.clientY);
+            state.score++;
+            state.energy--;
+            state.lastLogin = Date.now();
+            saveState();
+            updateUI();
+
+            tg.HapticFeedback.impactOccurred('light');
+            createFloatText(e.clientX, e.clientY);
         });
 
-        // Функция для создания анимации "+1"
-        function createFloatingText(x, y) {
+        function createFloatText(x, y) {
             const el = document.createElement('div');
             el.className = 'float-text';
             el.innerText = '+1';
+            const randomX = (Math.random() - 0.5) * 40;
+            el.style.left = `${x + randomX}px`;
+            el.style.top = `${y - 20}px`;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 800);
+        }
+
+        // --- Магазин и Вывод ---
+        function renderShop() {
+            const container = document.getElementById('shop-container');
+            container.innerHTML = '';
+
+            ITEMS.forEach(item => {
+                const canBuy = state.score >= item.price;
+
+                const div = document.createElement('div');
+                div.className = 'shop-item';
+                
+                div.innerHTML = `
+                    <div class="item-left">
+                        <span class="item-icon">${item.icon}</span>
+                        <div class="item-info">
+                            <span class="item-name">${item.name}</span>
+                            <span class="item-desc">${item.desc}</span>
+                            <span class="item-price">${item.price} ⭐️</span>
+                        </div>
+                    </div>
+                    <button class="btn ${canBuy ? 'btn-buy' : ''}" 
+                        ${!canBuy ? 'disabled' : ''} 
+                        onclick="initiateBuy('${item.id}')">
+                        ${canBuy ? 'Купить' : 'Нет звезд'}
+                    </button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        window.initiateBuy = (id) => {
+            const item = ITEMS.find(i => i.id === id);
+            if (state.score >= item.price) {
+                // Списываем средства сразу
+                state.score -= item.price;
+                saveState();
+                updateUI();
+                renderShop(); // Обновить кнопки (чтобы нельзя было купить снова без денег)
+                
+                tg.HapticFeedback.notificationOccurred('success');
+
+                // Показываем модалку
+                pendingItem = item;
+                document.getElementById('modal-item-name').innerText = item.name;
+                document.getElementById('modal').style.display = 'flex';
+            }
+        };
+
+        window.sendToAdmin = () => {
+            if (!pendingItem) return;
+
+            // Получаем данные пользователя из Telegram
+            const user = tg.initDataUnsafe?.user;
+            const userId = user?.id || 'Неизвестно';
+            const userName = user?.username ? `@${user.username}` : (user?.first_name || 'Пользователь');
+
+            // Формируем сообщение
+            const message = `🎁 *НОВАЯ ЗАЯВКА НА ВЫВОД!* %0A%0A` +
+                            `👤 *Игрок:* ${userName} (ID: ${userId}) %0A` +
+                            `🛍 *Товар:* ${pendingItem.name} (${pendingItem.icon}) %0A` +
+                            `💰 *Цена:* ${pendingItem.price} звезд %0A%0A` +
+                            `Прошу выдать подарок!`;
+
+            // Открываем чат с админом
+            const url = `https://t.me/${ADMIN_USERNAME}?start=${message}`;
             
-            // Позиционируем там, где был клик (или чуть рандомно вокруг центра, если клик был не мышкой)
-            // Для тач-скринов координаты могут быть неточными, центрируем относительно звезды
-            const rect = starBtn.getBoundingClientRect();
-            const centerX = rect.left + rect.width / 2;
+            // Telegram WebApp может не поддержать start с длинным текстом, лучше просто открыть чат
+            // и предложить отправить. Но для надежности используем простой link.
+            window.location.href = `https://t.me/${ADMIN_USERNAME}`;
+            
+            // Копируем текст в буфер обмена, чтобы пользователю было легче
+            navigator.clipboard.writeText(`Заявка на вывод: ${pendingItem.name}. Мой ID: ${userId}`).then(() => {
+                alert('Чат с админом открыт! Текст заявки скопирован в буфер обмена. Вставь его в чат (Ctrl+V).');
+            });
+
+            closeModal();
+        };
+
+        window.closeModal = () => {
+            document.getElementById('modal').style.display = 'none';
+            pendingItem = null;
+        };
+
+        // --- Интерфейс ---
+        function updateUI() {
+            document.getElementById('score').innerText = state.score;
+            document.getElementById('energy-text').innerText = `${state.energy}/${MAX_ENERGY}`;
+            const percent = (state.energy / MAX_ENERGY) * 100;
+            document.getElementById('energy-fill').style.width = `${percent}%`;
+        }
+
+        window.switchTab = (tabName) => {
+            document.querySelectorAll('.screen').forEach(el => {
+                el.classList.remove('active');
+                el.classList.add('hidden');
+            });
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+            document.getElementById(`screen-${tabName}`).classList.remove('hidden');
+            document.getElementById(`screen-${tabName}`).classList.add('active');
+            
+            const navIndex = tabName === 'game' ? 0 : 1;
+            document.querySelectorAll('.nav-item')[navIndex].classList.add('active');
+
+            if (tabName === 'shop') renderShop();
+        };
+
+        // Запуск
+        loadState();
+        tg.ready();
+
+        setInterval(() => {
+            rechargeEnergy();
+            updateUI();
+        }, 1000);
+
+    </script>
+</body>
+</html>
