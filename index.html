@@ -3,23 +3,361 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ARTCHAT Shop</title>
+    <title>ARTCHAT - Tap & Win</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, increment, collection, query, orderBy, limit, getDocs, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // --- ВАШ FIREBASE CONFIG ---
+const firebaseConfig = {
+  apiKey: "AIzaSyDxK7j9H3mN2pQ5rS8tU1vW4xY6zA0bC",
+  authDomain: "artchat-12345.firebaseapp.com",
+  projectId: "artchat-12345",
+  storageBucket: "artchat-12345.appspot.com",
+  messagingSenderId: "987654321",
+  appId: "1:987654321:web:abc123def456"
+};
+        // -------------------------
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        // --- Глобальные переменные ---
+        let userId = null;
+        let userData = null;
+        const MAX_ENERGY = 1000;
+
+        // --- Товары ---
+        const GIFTS = [
+            { id: 'bear', name: 'Мишка', price: 10000, icon: '🧸' },
+            { id: 'rose', name: 'Роза', price: 25000, icon: '🌹' },
+            { id: 'heart', name: 'Сердце', price: 10000, icon: '❤️' }
+        ];
+
+        const ENERGY_PACKS = [
+            { id: 'energy1', name: '250 Энергии', price: 50, energy: 250, icon: '⚡' },
+            { id: 'energy2', name: '500 Энергии', price: 100, energy: 500, icon: '⚡' }
+        ];
+
+        // --- Промокоды ---
+        const PROMO_CODES = {
+            'ARTSTAR26': { energy: 250, used: false }
+        };
+
+        // --- Инициализация ---
+        async function init() {
+            const user = tg.initDataUnsafe?.user;
+            if (!user?.id) {
+                alert('Ошибка: не удалось получить данные пользователя');
+                return;
+            }
+            userId = user.id;
+            await loadUserData();
+            updateUI();
+            renderShop();
+            renderEnergyShop();
+            setupPromoInput();
+            loadLeaderboard('day');
+        }
+
+        // --- Загрузка данных пользователя ---
+        async function loadUserData() {
+            try {
+                const userRef = doc(db, 'users', userId.toString());
+                const userSnap = await getDoc(userRef);
+
+                if (userSnap.exists()) {
+                    userData = userSnap.data();
+                    // Регенерация энергии
+                    const now = Date.now();
+                    const passed = Math.floor((now - userData.lastLogin) / 1000);
+                    userData.energy = Math.min(MAX_ENERGY, userData.energy + passed);
+                    userData.lastLogin = now;
+                    await saveUserData();
+                } else {
+                    userData = {
+                        score: 0,
+                        energy: MAX_ENERGY,
+                        lastLogin: Date.now(),
+                        totalTaps: 0,
+                        usedPromos: [],
+                        purchases: []
+                    };
+                    await saveUserData();
+                }
+            } catch (e) {
+                console.error('Ошибка загрузки:', e);
+                // Fallback на localStorage
+                userData = JSON.parse(localStorage.getItem('artchatState')) || {
+                    score: 0, energy: MAX_ENERGY, lastLogin: Date.now(), totalTaps: 0, usedPromos: [], purchases: []
+                };
+            }
+        }
+
+        // --- Сохранение данных ---
+        async function saveUserData() {
+            try {
+                await setDoc(doc(db, 'users', userId.toString()), userData);
+                localStorage.setItem('artchatState', JSON.stringify(userData));
+            } catch (e) {
+                console.error('Ошибка сохранения:', e);
+                localStorage.setItem('artchatState', JSON.stringify(userData));
+            }
+        }
+
+        // --- Обновление счета ---
+        async function updateScore(amount) {
+            userData.score += amount;
+            userData.totalTaps += amount;
+            await saveUserData();
+            updateUI();
+            updateLeaderboard();
+        }
+
+        // --- Тап ---
+        document.getElementById('tap-btn').addEventListener('click', async (e) => {
+            if (userData.energy <= 0) {
+                tg.HapticFeedback.notificationOccurred('error');
+                alert('Энергия кончилась! Купи в магазине или жди.');
+                return;
+            }
+            userData.energy--;
+            await updateScore(1);
+            tg.HapticFeedback.impactOccurred('light');
+            createFloatText(e.clientX, e.clientY);
+        });
+
+        // --- Покупка подарка ---
+        window.buyGift = async (id) => {
+            const gift = GIFTS.find(g => g.id === id);
+            if (userData.score >= gift.price) {
+                userData.score -= gift.price;
+                userData.purchases.push({ item: gift.name, date: Date.now() });
+                await saveUserData();
+                showPurchaseModal(gift);
+                renderShop();
+                updateUI();
+                tg.HapticFeedback.notificationOccurred('success');
+            }
+        };
+
+        // --- Покупка энергии ---
+        window.buyEnergy = async (id) => {
+            const pack = ENERGY_PACKS.find(p => p.id === id);
+            if (userData.score >= pack.price) {
+                userData.score -= pack.price;
+                userData.energy = Math.min(MAX_ENERGY * 2, userData.energy + pack.energy);
+                await saveUserData();
+                updateUI();
+                renderEnergyShop();
+                tg.HapticFeedback.notificationOccurred('success');
+                alert(`✅ Куплено: ${pack.name}!`);
+            }
+        };
+
+        // --- Промокод ---
+        window.usePromo = async () => {
+            const input = document.getElementById('promo-input');
+            const code = input.value.trim().toUpperCase();
+            
+            if (userData.usedPromos.includes(code)) {
+                alert('❌ Вы уже использовали этот промокод!');
+                return;
+            }
+
+            if (PROMO_CODES[code]) {
+                userData.energy += PROMO_CODES[code].energy;
+                userData.usedPromos.push(code);
+                await saveUserData();
+                updateUI();
+                alert(`✅ Промокод активирован! +${PROMO_CODES[code].energy} энергии`);
+                input.value = '';
+            } else {
+                alert('❌ Неверный промокод!');
+            }
+        };
+
+        // --- Таблица лидеров ---
+        async function loadLeaderboard(period) {
+            try {
+                const usersRef = collection(db, 'users');
+                const q = query(usersRef, orderBy('totalTaps', 'desc'), limit(10));
+                const snapshot = await getDocs(q);
+                
+                const tbody = document.getElementById('leaderboard-body');
+                tbody.innerHTML = '';
+                
+                let rank = 1;
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    const user = data.displayName || `User${doc.id.slice(0,4)}`;
+                    const isMe = doc.id === userId.toString();
+                    
+                    const row = `
+                        <tr style="${isMe ? 'background: rgba(255,215,0,0.2);' : ''}">
+                            <td>${rank}</td>
+                            <td>${user}</td>
+                            <td>${data.totalTaps || 0}</td>
+                        </tr>
+                    `;
+                    tbody.innerHTML += row;
+                    rank++;
+                });
+
+                // Подсветка кнопок
+                document.querySelectorAll('.lb-btn').forEach(btn => btn.classList.remove('active'));
+                document.getElementById(`lb-${period}`).classList.add('active');
+            } catch (e) {
+                console.error('Ошибка лидеров:', e);
+            }
+        }
+
+        async function updateLeaderboard() {
+            try {
+                await updateDoc(doc(db, 'users', userId.toString()), {
+                    totalTaps: increment(1)
+                });
+            } catch (e) {}
+        }
+
+        // --- UI Функции ---
+        function updateUI() {
+            document.getElementById('score').innerText = userData.score;
+            document.getElementById('energy-text').innerText = `${Math.floor(userData.energy)}/${MAX_ENERGY}`;
+            const percent = (userData.energy / MAX_ENERGY) * 100;
+            document.getElementById('energy-fill').style.width = `${Math.min(100, percent)}%`;
+        }
+
+        function renderShop() {
+            const container = document.getElementById('gifts-container');
+            container.innerHTML = '';
+            GIFTS.forEach(gift => {
+                const canBuy = userData.score >= gift.price;
+                container.innerHTML += `
+                    <div class="shop-item">
+                        <div class="item-left">
+                            <span class="item-icon">${gift.icon}</span>
+                            <div class="item-info">
+                                <span class="item-name">${gift.name}</span>
+                                <span class="item-price">${gift.price} ⭐️</span>
+                            </div>
+                        </div>
+                        <button class="btn ${canBuy ? 'btn-buy' : ''}" ${!canBuy ? 'disabled' : ''} onclick="buyGift('${gift.id}')">
+                            ${canBuy ? 'Купить' : 'Нет звезд'}
+                        </button>
+                    </div>
+                `;
+            });
+        }
+
+        function renderEnergyShop() {
+            const container = document.getElementById('energy-container');
+            container.innerHTML = '';
+            ENERGY_PACKS.forEach(pack => {
+                const canBuy = userData.score >= pack.price;
+                container.innerHTML += `
+                    <div class="shop-item">
+                        <div class="item-left">
+                            <span class="item-icon">${pack.icon}</span>
+                            <div class="item-info">
+                                <span class="item-name">${pack.name}</span>
+                                <span class="item-price">${pack.price} ⭐️</span>
+                            </div>
+                        </div>
+                        <button class="btn ${canBuy ? 'btn-buy' : ''}" ${!canBuy ? 'disabled' : ''} onclick="buyEnergy('${pack.id}')">
+                            ${canBuy ? 'Купить' : 'Нет звезд'}
+                        </button>
+                    </div>
+                `;
+            });
+        }
+
+        function setupPromoInput() {
+            document.getElementById('promo-apply').addEventListener('click', usePromo);
+            document.getElementById('promo-input').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') usePromo();
+            });
+        }
+
+        function showPurchaseModal(gift) {
+            const modal = document.getElementById('purchase-modal');
+            document.getElementById('modal-item-name').innerText = gift.name;
+            modal.style.display = 'flex';
+        }
+
+        window.sendToAdmin = () => {
+            const gift = document.getElementById('modal-item-name').innerText;
+            const message = `Заявка на вывод: ${gift}. Мой ID: ${userId}`;
+            navigator.clipboard.writeText(message);
+            window.location.href = 'https://t.me/artemchikdsgn';
+            alert('Текст скопирован! Вставь в чат админу.');
+            document.getElementById('purchase-modal').style.display = 'none';
+        };
+
+        window.closeModal = () => {
+            document.getElementById('purchase-modal').style.display = 'none';
+        };
+
+        window.switchTab = (tabName) => {
+            document.querySelectorAll('.screen').forEach(el => {
+                el.classList.remove('active');
+                el.classList.add('hidden');
+            });
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`screen-${tabName}`).classList.remove('hidden');
+            document.getElementById(`screen-${tabName}`).classList.add('active');
+            const navIndex = ['game', 'shop', 'leaders'].indexOf(tabName);
+            document.querySelectorAll('.nav-item')[navIndex].classList.add('active');
+            
+            if (tabName === 'leaders') loadLeaderboard('day');
+        };
+
+        window.switchLeaderboard = (period) => {
+            loadLeaderboard(period);
+        };
+
+        function createFloatText(x, y) {
+            const el = document.createElement('div');
+            el.className = 'float-text';
+            el.innerText = '+1';
+            el.style.left = `${x + (Math.random() - 0.5) * 40}px`;
+            el.style.top = `${y - 20}px`;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 800);
+        }
+
+        // Запуск
+        init();
+        tg.ready();
+
+        // Регенерация энергии
+        setInterval(async () => {
+            if (userData) {
+                userData.energy = Math.min(MAX_ENERGY, userData.energy + 1);
+                await saveUserData();
+                updateUI();
+            }
+        }, 1000);
+    </script>
+
     <style>
         :root {
-            --bg-color: #1c1c1e;
+            --bg-color: #87CEEB;
             --text-color: #ffffff;
             --accent: #ffd700;
-            --secondary: #2c2c2e;
+            --secondary: rgba(255,255,255,0.2);
             --green: #34c759;
-            --red: #ff3b30;
             --blue: #007aff;
         }
 
         body {
             margin: 0;
             padding: 0;
-            background-color: var(--bg-color);
+            background: linear-gradient(180deg, #87CEEB 0%, #B0E0E6 100%);
             color: var(--text-color);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             height: 100vh;
@@ -29,11 +367,31 @@
             user-select: none;
         }
 
-        /* Верхняя панель */
+        /* Облака на фоне */
+        body::before {
+            content: '☁️ ☁️ ️ ☁️ ☁️ ☁️';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            font-size: 80px;
+            opacity: 0.3;
+            pointer-events: none;
+            z-index: 0;
+            letter-spacing: 100px;
+            animation: cloudMove 60s linear infinite;
+        }
+
+        @keyframes cloudMove {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-200px); }
+        }
+
         .header {
             padding: 20px;
             text-align: center;
-            background: rgba(44, 44, 46, 0.5);
+            background: rgba(255,255,255,0.2);
             backdrop-filter: blur(10px);
             z-index: 10;
         }
@@ -41,70 +399,35 @@
         .balance-box {
             display: inline-flex;
             align-items: center;
-            background: rgba(0,0,0,0.3);
+            background: rgba(255,255,255,0.3);
             padding: 10px 20px;
             border-radius: 20px;
             border: 1px solid var(--accent);
-            box-shadow: 0 0 10px rgba(255, 215, 0, 0.2);
+            box-shadow: 0 0 10px rgba(255,215,0,0.3);
         }
 
         .balance-icon { font-size: 24px; margin-right: 10px; }
-        .balance-value { font-size: 24px; font-weight: bold; color: var(--accent); }
+        .balance-value { font-size: 24px; font-weight: bold; color: #fff; text-shadow: 0 0 5px #000; }
 
-        .energy-info {
-            margin-top: 10px;
-            font-size: 14px;
-            color: #8e8e93;
-        }
-        .energy-bar {
-            width: 100%;
-            height: 6px;
-            background: #3a3a3c;
-            border-radius: 3px;
-            margin-top: 5px;
-            overflow: hidden;
-        }
-        .energy-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #ffd700, #ffaa00);
-            width: 100%;
-            transition: width 0.3s;
-        }
+        .energy-info { margin-top: 10px; font-size: 14px; color: #fff; text-shadow: 0 0 3px #000; }
+        .energy-bar { width: 100%; height: 6px; background: rgba(0,0,0,0.3); border-radius: 3px; margin-top: 5px; overflow: hidden; }
+        .energy-fill { height: 100%; background: linear-gradient(90deg, #ffd700, #ffaa00); width: 100%; transition: width 0.3s; }
 
-        /* Основной контент */
-        .content {
-            flex: 1;
-            position: relative;
-            overflow: hidden;
-        }
-
+        .content { flex: 1; position: relative; overflow: hidden; z-index: 1; }
         .screen {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0; width: 100%; height: 100%;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
             transition: transform 0.3s ease;
             overflow-y: auto;
         }
+        .screen.hidden { transform: translateX(100%); pointer-events: none; }
+        .screen.active { transform: translateX(0); }
 
-        .screen.hidden {
-            transform: translateX(100%);
-            pointer-events: none;
-        }
-
-        .screen.active {
-            transform: translateX(0);
-        }
-
-        /* Игра */
         .tap-area {
-            width: 220px;
-            height: 220px;
+            width: 220px; height: 220px;
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -112,12 +435,11 @@
             font-size: 100px;
             cursor: pointer;
             transition: transform 0.1s;
-            background: radial-gradient(circle, rgba(255,215,0,0.1) 0%, rgba(0,0,0,0) 70%);
+            background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 70%);
             -webkit-tap-highlight-color: transparent;
+            margin-top: 50px;
         }
-
         .tap-area:active { transform: scale(0.9); }
-        .tap-area.disabled { opacity: 0.5; cursor: not-allowed; filter: grayscale(1); }
 
         .float-text {
             position: absolute;
@@ -128,41 +450,42 @@
             animation: floatUp 0.8s ease-out forwards;
             text-shadow: 0 0 5px #000;
         }
-
         @keyframes floatUp {
             0% { opacity: 1; transform: translateY(0) scale(1); }
             100% { opacity: 0; transform: translateY(-80px) scale(1.2); }
         }
 
-        /* Магазин */
-        .shop-container {
-            padding: 20px;
+        .shop-section {
             width: 100%;
+            padding: 15px;
             box-sizing: border-box;
+        }
+        .shop-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #fff;
+            text-shadow: 0 0 5px #000;
+        }
+        .shop-container {
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            align-items: center;
+            gap: 10px;
         }
-
         .shop-item {
-            background: var(--secondary);
+            background: rgba(255,255,255,0.2);
             border-radius: 15px;
-            padding: 20px;
-            width: 100%;
-            max-width: 350px;
+            padding: 15px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border: 1px solid #3a3a3c;
+            backdrop-filter: blur(5px);
         }
-
         .item-left { display: flex; align-items: center; gap: 15px; }
-        .item-icon { font-size: 50px; }
+        .item-icon { font-size: 40px; }
         .item-info { display: flex; flex-direction: column; }
-        .item-name { font-weight: bold; font-size: 18px; }
-        .item-price { color: var(--accent); font-size: 14px; margin-top: 4px; }
-        .item-desc { font-size: 12px; color: #8e8e93; margin-top: 2px; }
+        .item-name { font-weight: bold; font-size: 16px; color: #fff; }
+        .item-price { color: var(--accent); font-size: 14px; text-shadow: 0 0 3px #000; }
 
         .btn {
             background: var(--accent);
@@ -173,37 +496,72 @@
             font-weight: bold;
             cursor: pointer;
             font-size: 14px;
-            white-space: nowrap;
-            transition: 0.2s;
         }
-        .btn:active { transform: scale(0.95); }
-        .btn:disabled { background: #555; color: #888; cursor: not-allowed; transform: none; }
-        
+        .btn:disabled { background: #555; color: #888; cursor: not-allowed; }
         .btn-buy { background: var(--blue); color: white; }
-        .btn-notify { background: var(--green); color: white; margin-top: 10px; width: 100%; max-width: 350px;}
 
-        /* Навигация */
+        .promo-section {
+            padding: 15px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .promo-input {
+            width: 100%;
+            padding: 12px;
+            border-radius: 10px;
+            border: none;
+            background: rgba(255,255,255,0.3);
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        .promo-input::placeholder { color: rgba(255,255,255,0.7); }
+
+        .leaderboard-table {
+            width: 90%;
+            max-width: 400px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 15px;
+            padding: 15px;
+            backdrop-filter: blur(5px);
+        }
+        .leaderboard-table table { width: 100%; border-collapse: collapse; }
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 10px;
+            text-align: left;
+            color: #fff;
+            border-bottom: 1px solid rgba(255,255,255,0.2);
+        }
+        .leaderboard-table th { color: var(--accent); }
+        .lb-buttons { display: flex; gap: 10px; margin-bottom: 15px; }
+        .lb-btn {
+            flex: 1;
+            padding: 8px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+        }
+        .lb-btn.active { background: var(--accent); color: #000; }
+
         .nav-bar {
             display: flex;
-            background: var(--secondary);
+            background: rgba(255,255,255,0.2);
             padding: 10px 0;
-            border-top: 1px solid #3a3a3c;
+            backdrop-filter: blur(10px);
         }
-
         .nav-item {
             flex: 1;
             text-align: center;
             padding: 10px;
-            color: #8e8e93;
+            color: rgba(255,255,255,0.7);
             cursor: pointer;
             font-size: 14px;
-            transition: 0.2s;
         }
-
         .nav-item.active { color: var(--accent); font-weight: bold; }
         .nav-icon { font-size: 20px; display: block; margin-bottom: 4px; }
 
-        /* Модальное окно (уведомление) */
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -215,7 +573,7 @@
             padding: 20px;
         }
         .modal {
-            background: var(--secondary);
+            background: rgba(44,44,46,0.95);
             padding: 25px;
             border-radius: 20px;
             text-align: center;
@@ -224,7 +582,22 @@
         }
         .modal h3 { margin-top: 0; color: var(--accent); }
         .modal p { font-size: 14px; color: #ccc; margin-bottom: 20px; }
-
+        .modal-btn {
+            background: var(--green);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 10px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+        .modal-close {
+            background: transparent;
+            color: #888;
+            border: 1px solid #888;
+        }
     </style>
 </head>
 <body>
@@ -244,241 +617,77 @@
         <!-- Экран Игры -->
         <div id="screen-game" class="screen active">
             <div class="tap-area" id="tap-btn">⭐️</div>
-            <div style="margin-top: 20px; opacity: 0.6; font-size: 12px;">Тапай чтобы заработать на подарки</div>
+            <div style="margin-top: 20px; opacity: 0.8; font-size: 14px; color: #fff; text-shadow: 0 0 5px #000;">Тапай чтобы заработать</div>
         </div>
 
         <!-- Экран Магазина -->
         <div id="screen-shop" class="screen hidden">
-            <h2 style="margin-top: 20px; margin-bottom: 10px;">Вывод подарков</h2>
-            <p style="font-size: 12px; color: #888; text-align: center; padding: 0 20px;">
-                Купи подарок и напиши админу для получения
-            </p>
-            <div class="shop-container" id="shop-container">
-                <!-- Товары генерируются JS -->
+            <h2 style="color: #fff; text-shadow: 0 0 5px #000;">🛍️ Магазин</h2>
+            
+            <div class="shop-section">
+                <div class="shop-title">🎁 Подарки на вывод</div>
+                <div class="shop-container" id="gifts-container"></div>
+            </div>
+
+            <div class="shop-section">
+                <div class="shop-title">⚡ Купить энергию</div>
+                <div class="shop-container" id="energy-container"></div>
+            </div>
+
+            <div class="promo-section">
+                <div class="shop-title">🎫 Промокод</div>
+                <input type="text" class="promo-input" id="promo-input" placeholder="Введите промокод">
+                <button class="btn btn-buy" id="promo-apply" style="width: 100%;">Активировать</button>
+            </div>
+        </div>
+
+        <!-- Экран Лидеров -->
+        <div id="screen-leaders" class="screen hidden">
+            <h2 style="color: #fff; text-shadow: 0 0 5px #000;">🏆 Топ игроков</h2>
+            <div class="lb-buttons">
+                <button class="lb-btn active" id="lb-day" onclick="switchLeaderboard('day')">День</button>
+                <button class="lb-btn" id="lb-month" onclick="switchLeaderboard('month')">Месяц</button>
+                <button class="lb-btn" id="lb-all" onclick="switchLeaderboard('all')">Все время</button>
+            </div>
+            <div class="leaderboard-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Игрок</th>
+                            <th>Тапы</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaderboard-body"></tbody>
+                </table>
             </div>
         </div>
     </div>
 
     <div class="nav-bar">
         <div class="nav-item active" onclick="switchTab('game')">
-            <span class="nav-icon"></span>
+            <span class="nav-icon">🎮</span>
             Игра
         </div>
         <div class="nav-item" onclick="switchTab('shop')">
-            <span class="nav-icon">🎁</span>
+            <span class="nav-icon">🛍️</span>
             Магазин
         </div>
-    </div>
-
-    <!-- Модальное окно подтверждения -->
-    <div class="modal-overlay" id="modal">
-        <div class="modal">
-            <h3>Заявка создана!</h3>
-            <p>Ты купил <b id="modal-item-name">...</b>.<br>Нажми кнопку ниже, чтобы отправить заявку админу <b>@artemchikdsgn</b>.</p>
-            <button class="btn btn-notify" onclick="sendToAdmin()">Отправить админу</button>
-            <button class="btn" style="background: transparent; color: #888; margin-top: 10px;" onclick="closeModal()">Закрыть</button>
+        <div class="nav-item" onclick="switchTab('leaders')">
+            <span class="nav-icon">🏆</span>
+            Топ
         </div>
     </div>
 
-    <script>
-        const tg = window.Telegram.WebApp;
-        tg.expand();
+    <!-- Модальное окно покупки -->
+    <div class="modal-overlay" id="purchase-modal">
+        <div class="modal">
+            <h3>✅ Покупка успешна!</h3>
+            <p>Ты купил <b id="modal-item-name">...</b>.<br>Напиши админу для получения.</p>
+            <button class="modal-btn" onclick="sendToAdmin()">📩 Написать админу</button>
+            <button class="modal-btn modal-close" onclick="closeModal()">Закрыть</button>
+        </div>
+    </div>
 
-        // --- Конфигурация ---
-        const MAX_ENERGY = 1000;
-        const ADMIN_USERNAME = 'artemchikdsgn'; // Ваш ник
-
-        // Товары
-        const ITEMS = [
-            { id: 'bear', name: 'Мишка', price: 10000, icon: '🧸', desc: 'Мягкий подарок' },
-            { id: 'rose', name: 'Роза', price: 25000, icon: '🌹', desc: 'Для особых случаев' }
-        ];
-
-        // --- Состояние (State) ---
-        let state = {
-            score: 0,
-            energy: MAX_ENERGY,
-            lastLogin: Date.now()
-        };
-
-        let pendingItem = null; // Товар, который сейчас покупаем
-
-        // --- Загрузка данных ---
-        function loadState() {
-            const saved = localStorage.getItem('artchatState');
-            if (saved) {
-                state = { ...state, ...JSON.parse(saved) };
-            }
-            rechargeEnergy();
-            updateUI();
-            renderShop();
-        }
-
-        function saveState() {
-            localStorage.setItem('artchatState', JSON.stringify(state));
-        }
-
-        // --- Логика Энергии ---
-        function rechargeEnergy() {
-            const now = Date.now();
-            const passed = now - state.lastLogin;
-            // Регенерация: 1 энергия в секунду (для теста). 
-            // Для 1000 в час замените 1000 на 3600000 в делителе
-            const regenerated = Math.floor(passed / 1000); 
-
-            if (regenerated > 0) {
-                state.energy = Math.min(MAX_ENERGY, state.energy + regenerated);
-                state.lastLogin = now;
-                saveState();
-            }
-        }
-
-        // --- Игровая логика ---
-        const tapBtn = document.getElementById('tap-btn');
-        
-        tapBtn.addEventListener('click', (e) => {
-            if (state.energy <= 0) {
-                tg.HapticFeedback.notificationOccurred('error');
-                return;
-            }
-
-            state.score++;
-            state.energy--;
-            state.lastLogin = Date.now();
-            saveState();
-            updateUI();
-
-            tg.HapticFeedback.impactOccurred('light');
-            createFloatText(e.clientX, e.clientY);
-        });
-
-        function createFloatText(x, y) {
-            const el = document.createElement('div');
-            el.className = 'float-text';
-            el.innerText = '+1';
-            const randomX = (Math.random() - 0.5) * 40;
-            el.style.left = `${x + randomX}px`;
-            el.style.top = `${y - 20}px`;
-            document.body.appendChild(el);
-            setTimeout(() => el.remove(), 800);
-        }
-
-        // --- Магазин и Вывод ---
-        function renderShop() {
-            const container = document.getElementById('shop-container');
-            container.innerHTML = '';
-
-            ITEMS.forEach(item => {
-                const canBuy = state.score >= item.price;
-
-                const div = document.createElement('div');
-                div.className = 'shop-item';
-                
-                div.innerHTML = `
-                    <div class="item-left">
-                        <span class="item-icon">${item.icon}</span>
-                        <div class="item-info">
-                            <span class="item-name">${item.name}</span>
-                            <span class="item-desc">${item.desc}</span>
-                            <span class="item-price">${item.price} ⭐️</span>
-                        </div>
-                    </div>
-                    <button class="btn ${canBuy ? 'btn-buy' : ''}" 
-                        ${!canBuy ? 'disabled' : ''} 
-                        onclick="initiateBuy('${item.id}')">
-                        ${canBuy ? 'Купить' : 'Нет звезд'}
-                    </button>
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        window.initiateBuy = (id) => {
-            const item = ITEMS.find(i => i.id === id);
-            if (state.score >= item.price) {
-                // Списываем средства сразу
-                state.score -= item.price;
-                saveState();
-                updateUI();
-                renderShop(); // Обновить кнопки (чтобы нельзя было купить снова без денег)
-                
-                tg.HapticFeedback.notificationOccurred('success');
-
-                // Показываем модалку
-                pendingItem = item;
-                document.getElementById('modal-item-name').innerText = item.name;
-                document.getElementById('modal').style.display = 'flex';
-            }
-        };
-
-        window.sendToAdmin = () => {
-            if (!pendingItem) return;
-
-            // Получаем данные пользователя из Telegram
-            const user = tg.initDataUnsafe?.user;
-            const userId = user?.id || 'Неизвестно';
-            const userName = user?.username ? `@${user.username}` : (user?.first_name || 'Пользователь');
-
-            // Формируем сообщение
-            const message = `🎁 *НОВАЯ ЗАЯВКА НА ВЫВОД!* %0A%0A` +
-                            `👤 *Игрок:* ${userName} (ID: ${userId}) %0A` +
-                            `🛍 *Товар:* ${pendingItem.name} (${pendingItem.icon}) %0A` +
-                            `💰 *Цена:* ${pendingItem.price} звезд %0A%0A` +
-                            `Прошу выдать подарок!`;
-
-            // Открываем чат с админом
-            const url = `https://t.me/${ADMIN_USERNAME}?start=${message}`;
-            
-            // Telegram WebApp может не поддержать start с длинным текстом, лучше просто открыть чат
-            // и предложить отправить. Но для надежности используем простой link.
-            window.location.href = `https://t.me/${ADMIN_USERNAME}`;
-            
-            // Копируем текст в буфер обмена, чтобы пользователю было легче
-            navigator.clipboard.writeText(`Заявка на вывод: ${pendingItem.name}. Мой ID: ${userId}`).then(() => {
-                alert('Чат с админом открыт! Текст заявки скопирован в буфер обмена. Вставь его в чат (Ctrl+V).');
-            });
-
-            closeModal();
-        };
-
-        window.closeModal = () => {
-            document.getElementById('modal').style.display = 'none';
-            pendingItem = null;
-        };
-
-        // --- Интерфейс ---
-        function updateUI() {
-            document.getElementById('score').innerText = state.score;
-            document.getElementById('energy-text').innerText = `${state.energy}/${MAX_ENERGY}`;
-            const percent = (state.energy / MAX_ENERGY) * 100;
-            document.getElementById('energy-fill').style.width = `${percent}%`;
-        }
-
-        window.switchTab = (tabName) => {
-            document.querySelectorAll('.screen').forEach(el => {
-                el.classList.remove('active');
-                el.classList.add('hidden');
-            });
-            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-
-            document.getElementById(`screen-${tabName}`).classList.remove('hidden');
-            document.getElementById(`screen-${tabName}`).classList.add('active');
-            
-            const navIndex = tabName === 'game' ? 0 : 1;
-            document.querySelectorAll('.nav-item')[navIndex].classList.add('active');
-
-            if (tabName === 'shop') renderShop();
-        };
-
-        // Запуск
-        loadState();
-        tg.ready();
-
-        setInterval(() => {
-            rechargeEnergy();
-            updateUI();
-        }, 1000);
-
-    </script>
 </body>
 </html>
