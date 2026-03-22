@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Star Tapper</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--tg-theme-bg-color, #1c1c1e);
+            color: var(--tg-theme-text-color, #ffffff);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none; /* Запрет выделения текста */
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .score-container {
+            position: absolute;
+            top: 15%;
+            text-align: center;
+        }
+
+        .score-label {
+            font-size: 14px;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .score-value {
+            font-size: 48px;
+            font-weight: 800;
+            margin-top: 5px;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+        }
+
+        .star-container {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.1s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* Эффект нажатия */
+        .star-container:active {
+            transform: scale(0.90);
+        }
+
+        .star-svg {
+            width: 100%;
+            height: 100%;
+            fill: #ffd700;
+            filter: drop-shadow(0 0 15px rgba(255, 215, 0, 0.6));
+            pointer-events: none; /* Чтобы клик проходил сквозь SVG на контейнер */
+        }
+
+        /* Всплывающие цифры +1 */
+        .float-text {
+            position: absolute;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 24px;
+            pointer-events: none;
+            animation: floatUp 1s ease-out forwards;
+            text-shadow: 0 0 5px #000;
+        }
+
+        @keyframes floatUp {
+            0% { opacity: 1; transform: translateY(0) scale(1); }
+            100% { opacity: 0; transform: translateY(-100px) scale(1.5); }
+        }
+
+        .footer {
+            position: absolute;
+            bottom: 30px;
+            font-size: 12px;
+            opacity: 0.5;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="score-container">
+        <div class="score-label">Ваш баланс</div>
+        <div class="score-value" id="score">0</div>
+    </div>
+
+    <div class="star-container" id="star-btn">
+        <!-- SVG Звезда -->
+        <svg class="star-svg" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+        </svg>
+    </div>
+
+    <div class="footer">Tap the star to earn</div>
+
+    <script>
+        // Инициализация Telegram WebApp
+        const tg = window.Telegram.WebApp;
+        tg.expand(); // Развернуть на весь экран
+
+        // Элементы
+        const scoreEl = document.getElementById('score');
+        const starBtn = document.getElementById('star-btn');
+        
+        // Загрузка счета из localStorage
+        let score = parseInt(localStorage.getItem('starScore')) || 0;
+        scoreEl.innerText = score;
+
+        // Обработка клика
+        starBtn.addEventListener('click', (e) => {
+            // 1. Увеличиваем счет
+            score++;
+            scoreEl.innerText = score;
+            localStorage.setItem('starScore', score);
+
+            // 2. Вибрация (Haptic Feedback) - работает только в Telegram
+            if (tg.HapticFeedback) {
+                tg.HapticFeedback.impactOccurred('light');
+            }
+
+            // 3. Создаем всплывающий текст "+1"
+            createFloatingText(e.clientX, e.clientY);
+        });
+
+        // Функция для создания анимации "+1"
+        function createFloatingText(x, y) {
+            const el = document.createElement('div');
+            el.className = 'float-text';
+            el.innerText = '+1';
+            
+            // Позиционируем там, где был клик (или чуть рандомно вокруг центра, если клик был не мышкой)
+            // Для тач-скринов координаты могут быть неточными, центрируем относительно звезды
+            const rect = starBtn.getBoundingClientRect();
+            const centerX = rect.left + rect.width / 2;
