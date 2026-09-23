@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: starrent-nft
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: MINI_APP_URL
+        sync: false
+      - key: ADMIN_TELEGRAM_ID
+        sync: false
+      - key: TONAPI_KEY
+        sync: false
+      - key: TON_COLLECTION_1
+        sync: false
+      - key: TON_COLLECTION_2
+        sync: false
+      - key: TON_COLLECTION_3
+        sync: false
+      - key: TON_COLLECTION_4
+        sync: false
