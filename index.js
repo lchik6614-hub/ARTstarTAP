@@ -55,4 +55,21 @@ app.post('/api/admin/inventory',guardAdmin,(req,res)=>{const address=String(req.
 app.post('/api/rentals/invoice',guard,async(req,res)=>{const id=String(req.body.itemId||'');const days=Math.min(180,Math.max(1,Number(req.body.days||1)));const s=read(stateFile,{inventory:[],orders:[],wallets:[]});const item=s.inventory.find(x=>x.id===id&&x.status==='available');if(!item)return res.status(404).json({error:'NFT уже арендован'});const order={id:'order_'+Date.now()+'_'+crypto.randomBytes(2).toString('hex'),itemId:id,userId:String(req.user.id),days,totalStars:Math.max(1,Math.ceil(Number(item.dailyStars||1)*days)),status:'created',createdAt:new Date().toISOString()};try{order.invoiceLink=await tg('createInvoiceLink',{title:'Аренда '+item.name,description:'Срок аренды: '+days+' дн.',payload:JSON.stringify({orderId:order.id}),currency:'XTR',prices:[{label:'NFT аренда',amount:order.totalStars}],provider_token:''});s.orders.push(order);save(s);res.json({invoiceLink:order.invoiceLink,totalStars:order.totalStars,orderId:order.id});}catch(e){res.status(503).json({error:e.message});}});
 app.post('/api/webhook',async(req,res)=>{try{const u=req.body||{};if(u.pre_checkout_query)await tg('answerPreCheckoutQuery',{pre_checkout_query_id:u.pre_checkout_query.id,ok:true});const m=u.message;if(m?.successful_payment){let p={};try{p=JSON.parse(m.successful_payment.invoice_payload||'{}');}catch{}const s=read(stateFile,{inventory:[],orders:[],wallets:[]});const o=s.orders.find(x=>x.id===p.orderId);if(o){o.status='paid';o.paidAt=new Date().toISOString();const item=s.inventory.find(x=>x.id===o.itemId);if(item){item.status='rented';item.renterId=o.userId;item.rentedUntil=new Date(Date.now()+o.days*86400000).toISOString();}save(s);await tg('sendMessage',{chat_id:m.chat.id,text:'Оплата получена. NFT забронирован на '+o.days+' дн. Передача выполняется администратором.'});}}if(m?.text==='/start'||m?.text==='/rent'){await tg('sendMessage',{chat_id:m.chat.id,text:'Откройте каталог NFT и оплатите аренду Stars.',reply_markup:{inline_keyboard:[[{text:'Открыть Mini App',web_app:{url:process.env.MINI_APP_URL||'https://your-domain.example'}}]]}});}res.json({ok:true});}catch(e){console.error(e.message);res.status(500).json({ok:false});}});
 app.get('*',(_q,r)=>r.sendFile(path.join(root,'index.html')));
-app.listen(port,()=>console.log('StarRent NFT on '+port));
+async function startPolling(){
+  try{await tg('deleteWebhook',{drop_pending_updates:false});}catch(e){console.error('Webhook cleanup:',e.message);}
+  let offset=0;
+  console.log('Telegram polling enabled');
+  while(true){
+    try{
+      const updates=await tg('getUpdates',{offset,timeout:45,allowed_updates:['message','pre_checkout_query']});
+      for(const update of updates){offset=update.update_id+1;await fetch('http://127.0.0.1:'+port+'/api/webhook',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(update)});}
+    }catch(e){console.error('Polling:',e.message);await new Promise(resolve=>setTimeout(resolve,3000));}
+  }
+}
+app.listen(port,async()=>{
+  console.log('StarRent NFT on '+port);
+  if(token&&process.env.MINI_APP_URL){
+    try{await tg('setChatMenuButton',{menu_button:{type:'web_app',text:'Открыть Mini App',web_app:{url:process.env.MINI_APP_URL}}});console.log('Telegram Mini App menu button configured');}catch(e){console.error('Menu button:',e.message);}
+  }
+  if(token&&process.env.BOT_POLLING==='true')startPolling();
+});
