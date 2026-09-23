@@ -1,0 +1,9 @@
+{
+ "inventory":[
+  {"id":"demo-181612","collectionId":"c1","name":"Mood Pack #181612","number":"181612","image":"","dailyStars":2,"status":"available"},
+  {"id":"demo-43594","collectionId":"c1","name":"Mood Pack #43594","number":"43594","image":"","dailyStars":3,"status":"available"},
+  {"id":"demo-7208","collectionId":"c2","name":"Rare Gift #7208","number":"7208","image":"","dailyStars":5,"status":"available"},
+  {"id":"demo-9102","collectionId":"c3","name":"Classic #9102","number":"9102","image":"","dailyStars":1,"status":"available"}
+ ],
+ "orders":[],"wallets":[]
+}
