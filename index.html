@@ -1,14 +1,38 @@
 <!doctype html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101010">
-<title>StarRent NFT</title><script src="https://telegram.org/js/telegram-web-app.js"></script><link rel="stylesheet" href="/styles.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111111">
+  <title>StarRent NFT</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/styles.css">
 </head>
-<body><main class="shell">
-<header><div class="logo"><b>✦</b> StarRent</div><span id="profile">Telegram</span></header>
-<section class="hero"><div><small>NFT RENTAL · TELEGRAM STARS</small><h1>Арендуй NFT<br><em>за Stars</em></h1><p>Выбирай NFT из доступных коллекций и оплачивай прямо в Telegram.</p></div><i>✦</i></section>
-<section class="stats"><div><b id="available">0</b><span>доступно</span></div><div><b>4</b><span>коллекции</span></div><div><b id="rented">0</b><span>в аренде</span></div></section>
-<nav><button class="tab active" data-view="catalog">Каталог</button><button class="tab admin hidden" data-view="topup">Пополнить NFT</button></nav>
-<section id="catalog"><div class="title"><div><small>ВЫБЕРИ СВОЙ</small><h2>Каталог NFT</h2></div><select id="filter"><option value="">Все коллекции</option></select></div><div id="grid" class="grid"></div><div id="empty" class="empty hidden">Свободных NFT пока нет.</div></section>
-<section id="topup" class="hidden"><small>ТОЛЬКО ДЛЯ АДМИНИСТРАТОРА</small><h2>Пополнить склад</h2><div class="panel"><p>Зайди на Fragment, скопируй TON-адрес кошелька и вставь его сюда. Seed-фразу вводить не нужно.</p><input id="wallet" placeholder="EQ... или UQ..."><button class="primary" id="inspect">Показать NFT на аккаунте</button><div id="message"></div></div><div id="found" class="hidden"><div class="title"><h2>Найденные NFT</h2><button class="primary small" id="add">Добавить выбранные</button></div><div id="foundGrid" class="grid"></div></div></section>
-</main><div id="toast"></div><script src="/app.js"></script></body></html>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="brand"><span class="brand-icon">✦</span><div><b>StarRent</b><small>NFT RENTAL</small></div></div>
+      <div class="user-pill"><span class="status-dot"></span><span id="profile">Telegram</span></div>
+    </header>
+    <section class="hero">
+      <div class="hero-copy"><div class="kicker">TELEGRAM STARS MARKET</div><h1>Твой NFT.<br><span>Твои правила.</span></h1><p>Арендуй редкие Telegram-подарки на нужный срок и оплачивай в один клик.</p><button class="hero-button" id="scrollCatalog">Смотреть каталог <span>↗</span></button></div>
+      <div class="hero-art"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="hero-star">✦</div><div class="hero-label">4<br><small>COLLECTIONS</small></div></div>
+    </section>
+    <section class="metrics"><div><b id="available">0</b><span>доступно сейчас</span></div><div><b>4</b><span>коллекции</span></div><div><b id="rented">0</b><span>в аренде</span></div></section>
+    <nav class="tabs"><button class="tab active" data-view="catalog">Каталог</button><button class="tab admin hidden" data-view="topup">Пополнить NFT</button></nav>
+    <section id="catalog" class="screen">
+      <div class="section-heading"><div><div class="kicker">ВЫБЕРИ СВОЙ</div><h2>Каталог NFT</h2></div><div class="catalog-tools"><label class="search"><span>⌕</span><input id="search" placeholder="Поиск"></label><select id="filter"><option value="">Все коллекции</option></select></div></div>
+      <div id="collectionChips" class="chips"></div>
+      <div id="grid" class="grid"></div><div id="empty" class="empty hidden"><span>✦</span><b>Пока пусто</b><small>Новые NFT появятся здесь после пополнения склада.</small></div>
+    </section>
+    <section id="topup" class="screen hidden">
+      <div class="kicker">ADMIN INVENTORY</div><h2>Пополнить склад</h2>
+      <div class="admin-card"><div class="admin-icon">◈</div><div><h3>Импорт из Fragment</h3><p>Скопируй TON-адрес своего кошелька в Fragment. Seed-фраза и приватный ключ не нужны.</p></div></div>
+      <div class="wallet-form"><label>TON-адрес<input id="wallet" placeholder="EQ... или UQ..." autocomplete="off"></label><button class="primary" id="inspect">Показать NFT на аккаунте <span>→</span></button><div id="message"></div></div>
+      <div id="found" class="hidden"><div class="section-heading"><div><div class="kicker">FOUND ON WALLET</div><h2>Найденные NFT</h2></div><button class="primary compact-button" id="add">Добавить выбранные</button></div><div id="foundGrid" class="grid"></div></div>
+      <div class="hint"><b>Перед стартом</b><span>заполни адреса четырёх коллекций и TON API в переменных сервера.</span></div>
+    </section>
+    <footer><span>StarRent NFT</span><span>Powered by Telegram Stars</span></footer>
+  </main><div id="toast"></div><script src="/app.js"></script>
+</body>
+</html>
